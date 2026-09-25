@@ -143,19 +143,26 @@ def _set_m2m_if_changed(m2m_manager, new_objects, is_new):
 
 def invalidate_format_time_cache(stat_cache):
     """Force books with missing format timestamps to be reprocessed."""
-    book_ids = Book.objects.filter(
-        format__modified__isnull=True
-    ).values_list('gutenberg_id', flat=True).distinct()
+    book_ids = list(
+        Book.objects.filter(
+            format__modified__isnull=True
+        ).values_list('gutenberg_id', flat=True).distinct()
+    )
+
+    if not book_ids:
+        return stat_cache
 
     invalidated = 0
 
     for book_id in book_ids:
         directory = str(book_id)
+
         if directory in stat_cache:
             del stat_cache[directory]
             invalidated += 1
 
-    log('Invalidated %d RDF stat-cache entries missing format timestamps.' % invalidated)
+    log('Detected %d RDF stat-cache entries with missing format timestamps.' % invalidated)
+    log('Those entries will be force-updated.')
     return stat_cache
 
 def put_catalog_in_db(stat_cache, limit=None):
@@ -838,7 +845,6 @@ class Command(BaseCommand):
             log('Putting the catalog in the database...')
             stat_cache = load_stat_cache()
 
-            log('Invalidating RDF stat-cache entries missing format timestamps...')
             stat_cache = invalidate_format_time_cache(stat_cache)
 
             stat_cache, seen_ids, processed, skipped = put_catalog_in_db(stat_cache)
