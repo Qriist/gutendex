@@ -60,7 +60,8 @@ class Format(models.Model):
     book = models.ForeignKey('Book', on_delete=models.CASCADE)
     mime_type = models.CharField(max_length=32)
     url = models.CharField(max_length=256)
-
+    modified = models.DateTimeField(null=True, blank=True)
+    
     def __str__(self):
         return "%s (%s)" % (
             self.mime_type,
