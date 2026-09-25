@@ -58,6 +58,7 @@ def get_book(id, xml_file_path):
         'subjects': [],
         'languages': [],
         'formats': {},
+        'format_times': {},
         'downloads': None,
         'bookshelves': [],
         'copyright': None,
@@ -138,6 +139,11 @@ def get_book(id, xml_file_path):
         ):
             url = file.get('{%(rdf)s}about' % NAMESPACES)
             result['formats'][content_type.text] = url
+
+            modified = file.find('{%(dc)s}modified' % NAMESPACES)
+            result['format_times'][content_type.text] = (
+                modified.text if modified is not None else None
+            )
 
     # Type
     book_type = book.find(
