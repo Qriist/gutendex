@@ -7,6 +7,7 @@ import threading
 from time import sleep, strftime, time
 import sys
 import urllib.request
+from datetime import datetime, timezone
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -19,7 +20,10 @@ from books.models import *
 
 TEMP_PATH = settings.CATALOG_TEMP_DIR
 
-URL = 'https://gutenberg.org/cache/epub/feeds/rdf-files.tar.bz2'
+#URL = 'https://gutenberg.org/cache/epub/feeds/rdf-files.tar.bz2'
+#URL = 'https://od.lk/d/OV8yNjUxMzQxNjJfc2ZsOHc/catalog.tar.bz2' #tiny test file
+URL = 'https://web.opendrive.com/api/v1/download/file.json/OV8yNjUxMzQxNjJfc2ZsOHc?inline=0'
+
 DOWNLOAD_PATH = os.path.join(TEMP_PATH, 'catalog.tar.bz2')
 
 MOVE_SOURCE_PATH = os.path.join(TEMP_PATH, 'cache/epub')
@@ -137,6 +141,22 @@ def _set_m2m_if_changed(m2m_manager, new_objects, is_new):
     if new_pks != current_pks:
         m2m_manager.set(new_objects, clear=True)
 
+def invalidate_format_time_cache(stat_cache):
+    """Force books with missing format timestamps to be reprocessed."""
+    book_ids = Book.objects.filter(
+        format__modified__isnull=True
+    ).values_list('gutenberg_id', flat=True).distinct()
+
+    invalidated = 0
+
+    for book_id in book_ids:
+        directory = str(book_id)
+        if directory in stat_cache:
+            del stat_cache[directory]
+            invalidated += 1
+
+    log('Invalidated %d RDF stat-cache entries missing format timestamps.' % invalidated)
+    return stat_cache
 
 def put_catalog_in_db(stat_cache, limit=None):
     book_ids = []
@@ -315,7 +335,16 @@ def put_catalog_in_db(stat_cache, limit=None):
                     ''' Make/update the formats. '''
                     if is_new:
                         Format.objects.bulk_create([
-                            Format(book=book_in_db, mime_type=mt, url=url)
+                            Format(
+                                book=book_in_db,
+                                mime_type=mt,
+                                url=url,
+                                modified=(
+                                    datetime.fromisoformat(book['format_times'][mt]).replace(tzinfo=timezone.utc)
+                                    if book['format_times'].get(mt)
+                                    else None
+                                ),
+                            ) 
                             for mt, url in book['formats'].items()
                         ])
                     else:
@@ -327,10 +356,27 @@ def put_catalog_in_db(stat_cache, limit=None):
                         to_create = []
                         for mime_type, url in book['formats'].items():
                             key = (mime_type, url)
-                            if key in existing_formats:
-                                keep_ids.add(existing_formats[key].id)
-                            else:
-                                to_create.append(Format(book=book_in_db, mime_type=mime_type, url=url))
+                        if formats_to_update:
+                            Format.objects.bulk_update(formats_to_update, ['modified']) 
+                        if key in existing_formats:
+                            format_in_db = existing_formats[key]
+                            format_in_db.modified = (
+                                datetime.fromisoformat(format_time).replace(tzinfo=timezone.utc)
+                                if format_time
+                                else None
+                            )
+                            formats_to_update.append(format_in_db)
+                            keep_ids.add(format_in_db.id)
+                        else:
+                            to_create.append(
+                                Format(
+                                    book=book_in_db,
+                                    mime_type=mime_type,
+                                    url=url,
+                                    modified=book['format_times'].get(mime_type),
+                                )
+                            )
+                        formats_to_update = []
                         if to_create:
                             Format.objects.bulk_create(to_create)
                         stale_ids = {f.id for f in existing_formats.values()} - keep_ids
@@ -775,11 +821,14 @@ class Command(BaseCommand):
                         stdout=null,
                         stderr=log_file
                     )
-
+            
             log('Putting the catalog in the database...')
             stat_cache = load_stat_cache()
+
+            log('Invalidating RDF stat-cache entries missing format timestamps...')
+            stat_cache = invalidate_format_time_cache(stat_cache)
+
             stat_cache, seen_ids, processed, skipped = put_catalog_in_db(stat_cache)
-            stat_cache = {k: v for k, v in stat_cache.items() if k in seen_ids}
             save_stat_cache(stat_cache)
 
             log('Removing temporary files...')
