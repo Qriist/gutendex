@@ -171,7 +171,8 @@ def get_book(id, xml_file_path):
     if issued is not None and issued.text:
         try:
             result['published_year'] = int(issued.text[:4])
-            result['issued_date'] = date.fromisoformat(issued.text)
+            #result['issued_date'] = date.fromisoformat(issued.text)
+            result['issued_date'] = issued.text
         except (ValueError, TypeError):
             pass
 
@@ -181,10 +182,7 @@ def get_book(id, xml_file_path):
         if about.endswith('.rdf'):
             mod_el = file_el.find('{%(dc)s}modified' % NAMESPACES)
             if mod_el is not None and mod_el.text:
-                try:
-                    result['gt_modified'] = date.fromisoformat(mod_el.text[:10])
-                except ValueError:
-                    pass
+                result['gt_modified'] = mod_el.text[:10]
             break
 
     # Wikipedia URL (from dcterms:description)

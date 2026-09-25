@@ -354,32 +354,45 @@ def put_catalog_in_db(stat_cache, limit=None):
                         }
                         keep_ids = set()
                         to_create = []
+                        formats_to_update = []
+
                         for mime_type, url in book['formats'].items():
                             key = (mime_type, url)
-                        if formats_to_update:
-                            Format.objects.bulk_update(formats_to_update, ['modified']) 
-                        if key in existing_formats:
-                            format_in_db = existing_formats[key]
-                            format_in_db.modified = (
-                                datetime.fromisoformat(format_time).replace(tzinfo=timezone.utc)
-                                if format_time
-                                else None
-                            )
-                            formats_to_update.append(format_in_db)
-                            keep_ids.add(format_in_db.id)
-                        else:
-                            to_create.append(
-                                Format(
-                                    book=book_in_db,
-                                    mime_type=mime_type,
-                                    url=url,
-                                    modified=book['format_times'].get(mime_type),
+                            format_time = book['format_times'].get(mime_type)
+
+                            if key in existing_formats:
+                                format_in_db = existing_formats[key]
+                                format_in_db.modified = (
+                                    datetime.fromisoformat(format_time).replace(tzinfo=timezone.utc)
+                                    if format_time
+                                    else None
                                 )
-                            )
-                        formats_to_update = []
+                                formats_to_update.append(format_in_db)
+                                keep_ids.add(format_in_db.id)
+                            else:
+                                to_create.append(
+                                    Format(
+                                        book=book_in_db,
+                                        mime_type=mime_type,
+                                        url=url,
+                                        modified=(
+                                            datetime.fromisoformat(format_time).replace(tzinfo=timezone.utc)
+                                            if format_time
+                                            else None
+                                        ),
+                                    )
+                                )
+
+                        if formats_to_update:
+                            Format.objects.bulk_update(formats_to_update, ['modified'])
+
                         if to_create:
                             Format.objects.bulk_create(to_create)
-                        stale_ids = {f.id for f in existing_formats.values()} - keep_ids
+
+                        stale_ids = {
+                            f.id for f in existing_formats.values()
+                        } - keep_ids
+
                         if stale_ids:
                             Format.objects.filter(id__in=stale_ids).delete()
 
