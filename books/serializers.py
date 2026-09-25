@@ -45,6 +45,7 @@ class BookSerializer(serializers.ModelSerializer):
     editors = PersonSerializer(many=True)
     bookshelves = serializers.SerializerMethodField()
     formats = serializers.SerializerMethodField()
+    format_times = serializers.SerializerMethodField()
     languages = serializers.SerializerMethodField()
     subjects = serializers.SerializerMethodField()
     summaries = serializers.SerializerMethodField()
@@ -68,6 +69,7 @@ class BookSerializer(serializers.ModelSerializer):
             'copyright',
             'media_type',
             'formats',
+            'format_times',
             'download_count',
             'related_gt_books',
             'issued_date',
@@ -81,7 +83,13 @@ class BookSerializer(serializers.ModelSerializer):
 
     def get_formats(self, book):
         return {f.mime_type: f.url for f in book.get_formats()}
-
+    
+    def get_format_times(self, book):
+        return {
+            f.mime_type: f.modified.isoformat() if f.modified else None
+            for f in book.get_formats()
+        }
+    
     def get_id(self, book):
         return book.gutenberg_id
 
